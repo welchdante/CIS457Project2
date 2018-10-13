@@ -17,3 +17,6 @@ Part 1: Host1 should be able to ping Router1 and receive a message back
 /usr/include/netinet/arp.h has the struct used to put ARP packets together (might want to make a copy where the last 4 lines aren't commented out)
 
 networksorcery.com: resource for finding structure of ICMP requests
+
+To ping parts of the hosts/routers on mininet: mininet> source ping dest
+An example: h1 ping r1

@@ -7,10 +7,10 @@
 #include <netinet/ether.h>
 #include <arpa/inet.h>
 #include <sys/types.h>
+#include <sys/select.h>
 #include <ifaddrs.h>
 #include <netinet/ip_icmp.h>
-#include <netinet/ip.h>
-#include <linux/if_ether.h>
+//#include <netinet/ip.h>
 
 /*
  * ARP header.
@@ -41,12 +41,18 @@ struct arpheader {
 int main(){
   int packet_socket;
   unsigned char local_addr[6];
+
+  // Set up our file descriptors.
+  fd_set sockets;
+  FD_ZERO(&sockets);
+
   // Get list of interface addresses.
   struct ifaddrs *ifaddr, *tmp;
   if(getifaddrs(&ifaddr)==-1){
     perror("getifaddrs");
     return 1;
   }
+
   // Have the list, loop over the list.
   for(tmp = ifaddr; tmp!=NULL; tmp=tmp->ifa_next){
     //Check if this is a packet address, there will be one per
@@ -89,30 +95,48 @@ int main(){
 	        if(bind(packet_socket,tmp->ifa_addr,sizeof(struct sockaddr_ll))==-1){
 	           perror("bind");
           }
+          FD_SET(packet_socket, &sockets);
         }
       }
     }
+    //free the interface list when we don't need it anymore
+    //May need to comment out if we are keeping pointers to address list
+    freeifaddrs(ifaddr);
+
     //loop and recieve packets. We are only looking at one interface,
     //for the project you will probably want to look at more (to do so,
     //a good way is to have one socket per interface and use select to
     //see which ones have data)
     printf("Ready to recieve now\n");
     while(1){
-      char buf[1500], sendbuf[1500];
+      char buf[1500];
       struct sockaddr_ll recvaddr;
+      struct ethheader *eh;
+      struct arpheader *ah;
       int recvaddrlen=sizeof(struct sockaddr_ll);
-      //we can use recv, since the addresses are in the packet, but we
-      //use recvfrom because it gives us an easy way to determine if
-      //this packet is incoming or outgoing (when using ETH_P_ALL, we
-      //see packets in both directions. Only outgoing can be seen when
-      //using a packet socket with some specific protocol)
-      int n = recvfrom(packet_socket, buf, 1500,0,(struct sockaddr*)&recvaddr, &recvaddrlen);
-      //ignore outgoing packets (we can't disable some from being sent
-      //by the OS automatically, for example ICMP port unreachable
-      //messages, so we will just ignore them here)
-      if(recvaddr.sll_pkttype==PACKET_OUTGOING) continue;
-      //start processing all others
-      printf("Got a %d byte packet\n", n);
+
+      fd_set tmp_set = sockets;
+      select(FD_SETSIZE, &tmp_set, NULL, NULL, NULL);
+
+      for (int i = 0; i < FD_SETSIZE; i++) {
+        if (FD_ISSET(i, &tmp_set)) {
+          //we can use recv, since the addresses are in the packet, but we
+          //use recvfrom because it gives us an easy way to determine if
+          //this packet is incoming or outgoing (when using ETH_P_ALL, we
+          //see packets in both directions. Only outgoing can be seen when
+          //using a packet socket with some specific protocol)
+          int n = recvfrom(packet_socket, buf, 1500,0,(struct sockaddr*)&recvaddr, &recvaddrlen);
+          //ignore outgoing packets (we can't disable some from being sent
+          //by the OS automatically, for example ICMP port unreachable
+          //messages, so we will just ignore them here)
+          if(recvaddr.sll_pkttype==PACKET_OUTGOING) continue;
+          //start processing all others
+          printf("Got a %d byte packet\n", n);
+          eh = (struct ethheader*) buf;
+          eh->eth_type = ntohs(eh->eth_type);
+          printf("Type: %x\n", eh->eth_type);
+        }
+      }
 
       //what else to do is up to you, you can send packets with send,
       //just like we used for TCP sockets (or you can use sendto, but it

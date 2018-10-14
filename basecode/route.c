@@ -29,6 +29,23 @@ struct arpheader {
 };
 
 /*
+ * IP header.
+ * http://www.networksorcery.com/enp/protocol/ip.htm
+ */
+ struct ipheader {
+   unsigned char ihl_ver[8]; // Version=format of IP packet header, IHL=length
+   unsigned short dif_services; // http://www.networksorcery.com/enp/rfc/rfc2474.txt
+   unsigned short len; // Datagram length.
+   unsigned short id; // Datagram identity.
+   unsigned short flag_offset; // Either: (R) reserved, (DF) don't fragment, or (MF) more fragments.
+   unsigned char ttl; // Time to live.
+   unsigned char protocol; // Protocol type.
+   unsigned short checksum; // One's compliment checksum of the IP header.
+   unsigned char src_ip[4]; // Sender IP address.
+   unsigned char dest_ip[4]; // Target IP address.
+ }
+
+/*
  * Ethernet header.
  * http://www.networksorcery.com/enp/protocol/ethernet.htm
  */
@@ -38,6 +55,17 @@ struct arpheader {
    unsigned short eth_type; // Type: ARP=0x0806 IP=0x0800.
  };
 
+ /*
+  * ICMP header.
+  * http://www.networksorcery.com/enp/protocol/icmp.htm
+  */
+  struct icmpheader {
+    unsigned char type; // ICMP message format.
+    unsigned char code; // Qualifies ICMP message.
+    unsigned short checksum; // Checksum for the ICMP message.
+  }
+
+/* Main program... duh */
 int main(){
   int packet_socket;
   unsigned char local_addr[6];
@@ -109,10 +137,12 @@ int main(){
     //see which ones have data)
     printf("Ready to recieve now\n");
     while(1){
-      char buf[1500];
+      char buf[1500], bufsend[1500];
       struct sockaddr_ll recvaddr;
-      struct ethheader *eh;
-      struct arpheader *ah;
+      struct ethheader *eh_incoming, *eh_outgoing;
+      struct arpheader *ah_incoming, *ah_outgoing;
+      struct ipheader *ih_incoming, *ih_outgoing;
+      struct icmpheader *icmph_incoming, *icmph_outgoing;
       int recvaddrlen=sizeof(struct sockaddr_ll);
 
       fd_set tmp_set = sockets;
@@ -132,17 +162,53 @@ int main(){
           if(recvaddr.sll_pkttype==PACKET_OUTGOING) continue;
           //start processing all others
           printf("Got a %d byte packet\n", n);
-          eh = (struct ethheader*) buf;
-          eh->eth_type = ntohs(eh->eth_type);
-          printf("Type: %x\n", eh->eth_type);
+
+          // Store data in the structs.
+          eh_incoming = (struct ethheader*) buf;
+          ah_incoming = (struct arpheader*) (buf + sizeof(struct ethheader));
+          icmph_incoming = (struct ipheader*) (buf + sizeof(struct ethheader));
+
+          // Find out what type this is!
+          eh_incoming->eth_type = ntohs(eh_incoming->eth_type);
+          printf("Type: %x\n", eh_incoming->eth_type);
+
+          if (eh_incoming->eth_type == ETHERTYPE_ARP) {
+            printf("I think its ARP!\n");
+
+            // Copy data into an ARP struct.
+            printf("Building the ARP header right now...\n");
+            ah_outgoing = (struct arpheader*) (bufsend + sizeof(struct ethheader));
+            ah_outgoing->hardware = htons(1);
+            ah_outgoing->protocol = htons(ETH_P_IP);
+            ah_outgoing->hardware_length = 6;
+            ah_outgoing->protocol_length = 4;
+            ah_outgoing->opcode = htons(2);
+            memcpy(ah_outgoing->sender_addr, local_addr, 6);
+            memcpy(ah_outgoing->sender_ip, ah_incoming->target_ip, 4);
+            memcpy(ah_outgoing->target_addr, ah_incoming->sender_addr, 6);
+            memcpy(ah_outgoing->target_ip, ah_incoming->sender_ip, 4);
+
+            // Copy data into an Ethernet Struct.
+            printf("Building the ethernet header right now...\n");
+            eh_outgoing = (struct ethheader*) bufsend;
+            memcpy(eh_outgoing->eth_dest, eh_incoming->eth_src, 6);
+            memcpy(eh_outgoing->eth_src, eh_incoming->eth_dest, 6);
+            eh_outgoing->eth_type = htons(0x0806);
+
+            // Send the reply.
+            printf("Now sending the ARP reply...\n");
+            if (send(i, bufsend, 42, 0 == -1) {
+              printf("There was an error sending: %s\n", strerror(errno));
+            }
+          } else if (eh_incoming->eth_type == ETHERTYPE_IP) {
+            printf("I think its IP/ICMP!\n");
+            icmph_incoming = (struct icmpheader*) (buf + sizeof(struct ethheader) + sizeof(struct ipheader));
+
+            // Check if echo request.
+
+          }
         }
       }
-
-      //what else to do is up to you, you can send packets with send,
-      //just like we used for TCP sockets (or you can use sendto, but it
-      //is not necessary, since the headers, including all addresses,
-      //need to be in the buffer you are sending)
-
     }
     //free the interface list when we don't need it anymore
     freeifaddrs(ifaddr);

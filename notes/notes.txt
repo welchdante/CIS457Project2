@@ -20,3 +20,10 @@ networksorcery.com: resource for finding structure of ICMP requests
 
 To ping parts of the hosts/routers on mininet: mininet> source ping dest
 An example: h1 ping r1
+
+Testing code example (after running python script in mininet):
+Launch h1 with the command: xterm h1
+Launch r1 with the command: xterm r1
+On r1, run the compiled router code.
+On h1 run the command: ping 10.0.0.1
+The router should then take incoming data, figure out what it is, then send the proper reply. h1 will state it has received data after r1 sends it.

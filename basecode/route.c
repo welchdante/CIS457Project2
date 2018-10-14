@@ -10,7 +10,10 @@
 #include <sys/select.h>
 #include <ifaddrs.h>
 #include <netinet/ip_icmp.h>
-//#include <netinet/ip.h>
+
+/* Checksum for ICMP. */
+//unsigned short checksum(unsigned short *addr, unsigned short count);
+uint16_t in_chksum(unsigned char *addr, int len);
 
 /*
  * ARP header.
@@ -43,7 +46,7 @@ struct arpheader {
    unsigned short checksum; // One's compliment checksum of the IP header.
    unsigned char src_ip[4]; // Sender IP address.
    unsigned char dest_ip[4]; // Target IP address.
- }
+ };
 
 /*
  * Ethernet header.
@@ -63,7 +66,7 @@ struct arpheader {
     unsigned char type; // ICMP message format.
     unsigned char code; // Qualifies ICMP message.
     unsigned short checksum; // Checksum for the ICMP message.
-  }
+  };
 
 /* Main program... duh */
 int main(){
@@ -166,7 +169,7 @@ int main(){
           // Store data in the structs.
           eh_incoming = (struct ethheader*) buf;
           ah_incoming = (struct arpheader*) (buf + sizeof(struct ethheader));
-          icmph_incoming = (struct ipheader*) (buf + sizeof(struct ethheader));
+          ih_incoming = (struct ipheader*) (buf + sizeof(struct ethheader));
 
           // Find out what type this is!
           eh_incoming->eth_type = ntohs(eh_incoming->eth_type);
@@ -197,7 +200,7 @@ int main(){
 
             // Send the reply.
             printf("Now sending the ARP reply...\n");
-            if (send(i, bufsend, 42, 0 == -1) {
+            if (send(i, bufsend, 42, 0 == -1)) {
               printf("There was an error sending: %s\n", strerror(errno));
             }
           } else if (eh_incoming->eth_type == ETHERTYPE_IP) {
@@ -205,7 +208,46 @@ int main(){
             icmph_incoming = (struct icmpheader*) (buf + sizeof(struct ethheader) + sizeof(struct ipheader));
 
             // Check if echo request.
+            //if (icmph_incoming->type == 8) {
+              printf("This is an ICMP ECHO request!\n");
 
+              // Copy the packet.
+              memcpy(bufsend, buf, 1500);
+
+              // Copy data into ICMP header.
+              printf("Building the ICMP header right now...\n");
+              icmph_outgoing = (struct icmpheader*) (bufsend + sizeof(struct ethheader) + sizeof(struct ipheader));
+              icmph_outgoing->type = 0;
+              icmph_outgoing->checksum = 0;
+              icmph_outgoing->checksum = checksum((char*) icmph_outgoing, (1500 - sizeof(struct ethheader) - sizeof(struct ipheader)));
+
+              // Copy data into IP header.
+              ih_outgoing = (struct ipheader*) (bufsend + sizeof(struct ethheader));
+              //memcpy(ih_outgoing->ihl_ver, ih_incoming->ihl_ver, 8);
+              //ih_outgoing->dif_services = ih_incoming->dif_services;
+              //ih_outgoing->len = htons(ih_incoming->len);
+              //ih_outgoing->id = htons(ih_incoming->id);
+              //ih_outgoing->flag_offset = htons(ih_incoming->flag_offset);
+              //ih_outgoing->ttl = ih_incoming->ttl;
+              //ih_outgoing->protocol = ih_incoming->protocol;
+              //ih_outgoing->checksum = 0;
+              //ih_outgoing->checksum = ((char*) ih_outgoing, (1500 - sizeof(struct ethheader)));
+              memcpy(ih_outgoing->src_ip, ih_incoming->dest_ip, 4);
+              memcpy(ih_outgoing->dest_ip, ih_incoming->src_ip, 4);
+
+              // Copy data into ethernet header.
+              printf("Building the ethernet header right now...\n");
+              eh_outgoing = (struct ethheader*) bufsend;
+              memcpy(eh_outgoing->eth_dest, eh_incoming->eth_src, 6);
+              memcpy(eh_outgoing->eth_src, eh_incoming->eth_dest, 6);
+              eh_outgoing->eth_type = htons(0x0806);
+
+              // Sending an ICMP response packet.
+              printf("Sending ICMP response...\n");
+              if (send(i, bufsend, 42, 0 == -1)) {
+                printf("There was an error sending: %s\n", strerror(errno));
+              }
+            //}
           }
         }
       }
@@ -214,4 +256,57 @@ int main(){
     freeifaddrs(ifaddr);
     //exit
     return 0;
+}
+
+/*
+ * Check sum calculation.
+ * Derived from: http://www.faqs.org/rfcs/rfc1071.html
+ */
+// unsigned short checksum(unsigned short *addr, unsigned short count) {
+//     printf("Now calculating checksum...\n");
+//     unsigned long sum;
+//
+//     sum = 0;
+//     while (count > 1) {
+//             sum += *(unsigned short*)addr++;
+//             count -= 2;
+//             printf("sum is %lx\n", sum);
+//     }
+//
+//     /*  Add left-over byte, if any */
+//     if (count){
+//             sum += *(unsigned char *)addr;
+//             printf("in side left-over byte\n");
+//     }
+//     /*  Fold 32-bit sum to 16 bits */
+//     while (sum >> 16) {
+//             sum  = (sum & 0xffff) + (sum >> 16);
+//             printf("IN while:sum is %lx\n", sum);
+//     }
+//     printf("sum is %lx\n", sum);
+//     return (unsigned short)(~sum);
+// }
+uint16_t in_chksum(unsigned char *addr, int len) {
+    int nleft = len;
+    const uint16_t *w = (const uint16_t *) addr;
+    uint32_t sum = 0;
+    uint16_t answer = 0;
+
+    while (nleft > 1) {
+        sum += *w++;
+        nleft -= 2;
+    }
+
+    // mop up an odd byte, if necessary
+    if (nleft == 1) {
+        *(unsigned char *) (&answer) = *(const unsigned char *) w;
+        sum += answer;
+    }
+
+    // add back carry outs from top 16 bits to low 16 bits
+    sum = (sum & 0xffff) + (sum >> 16);
+    sum += (sum >> 16);
+
+    answer = ~sum;    // truncate to 16 bits
+    return answer;
 }

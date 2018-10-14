@@ -13,18 +13,18 @@
 
 /* Checksum for ICMP. */
 //unsigned short checksum(unsigned short *addr, unsigned short count);
-uint16_t in_chksum(unsigned char *addr, int len);
+uint16_t checksum(unsigned char *addr, int len);
 
 /*
  * ARP header.
  * http://www.networksorcery.com/enp/protocol/arp.htm
  */
 struct arpheader {
-  unsigned short int hardware; // Hardware address.
-  unsigned short int protocol; // Protocol address.
+  unsigned short hardware; // Hardware address.
+  unsigned short protocol; // Protocol address.
   unsigned char hardware_length; // Hardware address length.
   unsigned char protocol_length; // Protocol address length.
-  unsigned short int opcode; // Op code: 1=request 2=reply.
+  unsigned short opcode; // Op code: 1=request 2=reply.
   unsigned char sender_addr[6]; // Sender MAC address.
   unsigned char sender_ip[4]; // Sender IP address.
   unsigned char target_addr[6]; // Target MAC address.
@@ -36,14 +36,15 @@ struct arpheader {
  * http://www.networksorcery.com/enp/protocol/ip.htm
  */
  struct ipheader {
-   unsigned char ihl_ver[8]; // Version=format of IP packet header, IHL=length
-   unsigned short dif_services; // http://www.networksorcery.com/enp/rfc/rfc2474.txt
-   unsigned short len; // Datagram length.
-   unsigned short id; // Datagram identity.
-   unsigned short flag_offset; // Either: (R) reserved, (DF) don't fragment, or (MF) more fragments.
-   unsigned char ttl; // Time to live.
-   unsigned char protocol; // Protocol type.
-   unsigned short checksum; // One's compliment checksum of the IP header.
+   //unsigned char ihl_ver[8]; // Version=format of IP packet header, IHL=length
+   uint8_t ihl:4, version:4;
+   uint8_t dif_services; // http://www.networksorcery.com/enp/rfc/rfc2474.txt
+   uint8_t len; // Datagram length.
+   uint8_t id; // Datagram identity.
+   uint8_t flag_offset; // Either: (R) reserved, (DF) don't fragment, or (MF) more fragments.
+   uint8_t ttl; // Time to live.
+   uint8_t protocol; // Protocol type.
+   uint8_t checksum; // One's compliment checksum of the IP header.
    unsigned char src_ip[4]; // Sender IP address.
    unsigned char dest_ip[4]; // Target IP address.
  };
@@ -63,9 +64,9 @@ struct arpheader {
   * http://www.networksorcery.com/enp/protocol/icmp.htm
   */
   struct icmpheader {
-    unsigned char type; // ICMP message format.
-    unsigned char code; // Qualifies ICMP message.
-    unsigned short checksum; // Checksum for the ICMP message.
+    uint8_t type; // ICMP message format.
+    uint8_t code; // Qualifies ICMP message.
+    uint8_t checksum; // Checksum for the ICMP message.
   };
 
 /* Main program... duh */
@@ -99,9 +100,10 @@ int main(){
 
          // get our MAC address and store it.
          struct sockaddr_ll *pAddr = (struct sockaddr_ll *)tmp->ifa_addr;
+         memcpy(local_addr, pAddr->sll_addr, 6);
          printf("MAC: ");
 			   for(int i = 0; i < 5; i++) {
-           local_addr[i] = pAddr->sll_addr[i];
+           //local_addr[i] = pAddr->sll_addr[i];
            printf("%i:", local_addr[i]);
          }
          printf("%i\n", local_addr[5]);
@@ -130,9 +132,6 @@ int main(){
         }
       }
     }
-    //free the interface list when we don't need it anymore
-    //May need to comment out if we are keeping pointers to address list
-    freeifaddrs(ifaddr);
 
     //loop and recieve packets. We are only looking at one interface,
     //for the project you will probably want to look at more (to do so,
@@ -158,7 +157,7 @@ int main(){
           //this packet is incoming or outgoing (when using ETH_P_ALL, we
           //see packets in both directions. Only outgoing can be seen when
           //using a packet socket with some specific protocol)
-          int n = recvfrom(packet_socket, buf, 1500,0,(struct sockaddr*)&recvaddr, &recvaddrlen);
+          int n = recvfrom(i, buf, 1500,0,(struct sockaddr*)&recvaddr, &recvaddrlen);
           //ignore outgoing packets (we can't disable some from being sent
           //by the OS automatically, for example ICMP port unreachable
           //messages, so we will just ignore them here)
@@ -200,7 +199,7 @@ int main(){
 
             // Send the reply.
             printf("Now sending the ARP reply...\n");
-            if (send(i, bufsend, 42, 0 == -1)) {
+            if (send(i, bufsend, 42, 0) == -1) {
               printf("There was an error sending: %s\n", strerror(errno));
             }
           } else if (eh_incoming->eth_type == ETHERTYPE_IP) {
@@ -208,7 +207,7 @@ int main(){
             icmph_incoming = (struct icmpheader*) (buf + sizeof(struct ethheader) + sizeof(struct ipheader));
 
             // Check if echo request.
-            //if (icmph_incoming->type == 8) {
+            if (icmph_incoming->type == 8) {
               printf("This is an ICMP ECHO request!\n");
 
               // Copy the packet.
@@ -223,15 +222,15 @@ int main(){
 
               // Copy data into IP header.
               ih_outgoing = (struct ipheader*) (bufsend + sizeof(struct ethheader));
-              //memcpy(ih_outgoing->ihl_ver, ih_incoming->ihl_ver, 8);
-              //ih_outgoing->dif_services = ih_incoming->dif_services;
-              //ih_outgoing->len = htons(ih_incoming->len);
-              //ih_outgoing->id = htons(ih_incoming->id);
-              //ih_outgoing->flag_offset = htons(ih_incoming->flag_offset);
-              //ih_outgoing->ttl = ih_incoming->ttl;
-              //ih_outgoing->protocol = ih_incoming->protocol;
-              //ih_outgoing->checksum = 0;
-              //ih_outgoing->checksum = ((char*) ih_outgoing, (1500 - sizeof(struct ethheader)));
+              memcpy(ih_outgoing->ihl_ver, ih_incoming->ihl_ver, 8);
+              ih_outgoing->dif_services = ih_incoming->dif_services;
+              ih_outgoing->len = htons(ih_incoming->len);
+              ih_outgoing->id = htons(ih_incoming->id);
+              ih_outgoing->flag_offset = htons(ih_incoming->flag_offset);
+              ih_outgoing->ttl = ih_incoming->ttl;
+              ih_outgoing->protocol = ih_incoming->protocol;
+              ih_outgoing->checksum = 0;
+              ih_outgoing->checksum = checksum((char*) ih_outgoing, (1500 - sizeof(struct ethheader)));
               memcpy(ih_outgoing->src_ip, ih_incoming->dest_ip, 4);
               memcpy(ih_outgoing->dest_ip, ih_incoming->src_ip, 4);
 
@@ -240,11 +239,15 @@ int main(){
               eh_outgoing = (struct ethheader*) bufsend;
               memcpy(eh_outgoing->eth_dest, eh_incoming->eth_src, 6);
               memcpy(eh_outgoing->eth_src, eh_incoming->eth_dest, 6);
-              eh_outgoing->eth_type = htons(0x0806);
+              //eh_outgoing->eth_type = htons(0x0806);
+              // memcpy(&eh_outgoing,bufsend,14);
+              // memset(&bufsend[34], 0, 2);
+              // memcpy(bufsend, &eh_outgoing, 12);
+							// memcpy(&bufsend[14], &ih_outgoing, 20);
 
               // Sending an ICMP response packet.
               printf("Sending ICMP response...\n");
-              if (send(i, bufsend, 42, 0 == -1)) {
+              if (send(i, bufsend, 98, 0) == -1) {
                 printf("There was an error sending: %s\n", strerror(errno));
               }
             //}
@@ -259,54 +262,36 @@ int main(){
 }
 
 /*
- * Check sum calculation.
- * Derived from: http://www.faqs.org/rfcs/rfc1071.html
+ * Checksum calculation.
+ * Taken from: https://github.com/kohler/ipsumdump/blob/master/libclick-2.1/libsrc/in_cksum.c
  */
-// unsigned short checksum(unsigned short *addr, unsigned short count) {
-//     printf("Now calculating checksum...\n");
-//     unsigned long sum;
-//
-//     sum = 0;
-//     while (count > 1) {
-//             sum += *(unsigned short*)addr++;
-//             count -= 2;
-//             printf("sum is %lx\n", sum);
-//     }
-//
-//     /*  Add left-over byte, if any */
-//     if (count){
-//             sum += *(unsigned char *)addr;
-//             printf("in side left-over byte\n");
-//     }
-//     /*  Fold 32-bit sum to 16 bits */
-//     while (sum >> 16) {
-//             sum  = (sum & 0xffff) + (sum >> 16);
-//             printf("IN while:sum is %lx\n", sum);
-//     }
-//     printf("sum is %lx\n", sum);
-//     return (unsigned short)(~sum);
-// }
-uint16_t in_chksum(unsigned char *addr, int len) {
+uint16_t checksum(const unsigned char *addr, int len) {
     int nleft = len;
-    const uint16_t *w = (const uint16_t *) addr;
+    const uint16_t *w = (const uint16_t *)addr;
     uint32_t sum = 0;
     uint16_t answer = 0;
 
-    while (nleft > 1) {
-        sum += *w++;
-        nleft -= 2;
+    /*
+     * Our algorithm is simple, using a 32 bit accumulator (sum), we add
+     * sequential 16 bit words to it, and at the end, fold back all the
+     * carry bits from the top 16 bits into the lower 16 bits.
+     */
+    while (nleft > 1)  {
+	sum += *w++;
+	nleft -= 2;
     }
 
-    // mop up an odd byte, if necessary
+    /* mop up an odd byte, if necessary */
     if (nleft == 1) {
-        *(unsigned char *) (&answer) = *(const unsigned char *) w;
-        sum += answer;
+	*(unsigned char *)(&answer) = *(const unsigned char *)w ;
+	sum += answer;
     }
 
-    // add back carry outs from top 16 bits to low 16 bits
+    /* add back carry outs from top 16 bits to low 16 bits */
     sum = (sum & 0xffff) + (sum >> 16);
     sum += (sum >> 16);
+    /* guaranteed now that the lower 16 bits of sum are correct */
 
-    answer = ~sum;    // truncate to 16 bits
+    answer = ~sum;              /* truncate to 16 bits */
     return answer;
 }

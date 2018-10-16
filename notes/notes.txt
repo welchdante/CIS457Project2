@@ -1,4 +1,4 @@
-ssh mininet@(IP of mininet)
+ssh -X -Y mininet@(IP of mininet)
 
 scp a file: 'scp filename mininet@(IP of mininet):'
 

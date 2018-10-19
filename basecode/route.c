@@ -83,6 +83,9 @@ int main(){
     return 1;
   }
 
+  //need array of ints, (a vector would be nice lol) for interfaces
+  //need array of chars for addresses
+  
   // Have the list, loop over the list.
   for(tmp = ifaddr; tmp!=NULL; tmp=tmp->ifa_next){
     //Check if this is a packet address, there will be one per
@@ -93,7 +96,7 @@ int main(){
     if(tmp->ifa_addr->sa_family==AF_PACKET){
       printf("Interface: %s\n",tmp->ifa_name);
       // create a packet socket on interface r?-eth1
-      if(!strncmp(&(tmp->ifa_name[3]),"eth1",4)){
+      if(!strncmp(&(tmp->ifa_name[3]),"eth",3)){
         printf("Creating Socket on interface %s\n",tmp->ifa_name);
 
         // get our MAC address and store it.
@@ -126,6 +129,9 @@ int main(){
         if(bind(packet_socket,tmp->ifa_addr,sizeof(struct sockaddr_ll))==-1){
           perror("bind");
         }
+
+        //add packet_socket to interfaces
+        //add local_mac->sll_addr to addresses
       }
     }
   }
@@ -136,6 +142,7 @@ int main(){
   //see which ones have data)
   printf("Ready to recieve now\n");
   while(1) {
+    //do the logic below, but in a for loop with interfaces
     char buf[1500], bufsend[1500];
     struct sockaddr_ll recvaddr;
     struct ethheader *eh_incoming, *eh_outgoing;

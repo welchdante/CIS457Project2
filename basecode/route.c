@@ -12,9 +12,6 @@
 #include <linux/ip.h>
 #include <stdlib.h>
 
-/* Checksum for ICMP. */
-uint16_t checksum(unsigned char *addr, int len);
-
 /*
  * ARP header.
  * http://www.networksorcery.com/enp/protocol/arp.htm
@@ -81,7 +78,10 @@ struct routingTable {
 };
 
 /* Fills routing table with values. */
-void loadTable(struct routingTable arrRoutingTable[], int arrLength);
+void loadTable(struct routingTable *arrRoutingTable, int arrLength);
+
+/* Checksum for ICMP. */
+uint16_t checksum(unsigned char *addr, int len);
 
 //need array of ints, (a vector would be nice lol) for interfaces
 //need array of chars for addresses
@@ -98,6 +98,12 @@ int main(){
   // Load routing table in.
   struct routingTable myRoutingTable[6];
   loadTable(myRoutingTable, 6);
+
+  printf("Testing everything loaded correctly...\n");
+  int test;
+  for(test = 0; test < 3; test++) {
+    printf("IP Address: %s IP Hop: %s Name: %s\n", myRoutingTable[test].ipAddress, myRoutingTable[test].ipHopper, myRoutingTable[test].name);
+  }
 
   //int numip = 0;
 
@@ -339,7 +345,8 @@ uint16_t checksum(unsigned char *addr, int len) {
 /*
  * Fills routing table with values.
  */
-void loadTable(struct routingTable arrRoutingTable[], int arrLength) {
+void loadTable(struct routingTable *arrRoutingTable, int arrLength) {
+  //struct routingTable myRoutingTable[6];
   FILE* fp;
   fp = fopen("r1-table.txt", "r"); // open read only.
   if (fp == NULL) {
@@ -353,13 +360,19 @@ void loadTable(struct routingTable arrRoutingTable[], int arrLength) {
   char string[50];
 
   int i = 0;
-  while ((read = getline(&line, &len, fp)) != -1) {
-    printf("%s", line);
+  while (((read = getline(&line, &len, fp)) != -1) && i < arrLength) {
+    //printf("%s", line);
+    strcpy(string, line);
+    string[read]  = '\0';
+    strcpy(arrRoutingTable[i].ipAddress, (char *) strtok(string, " "));
+    strcpy(arrRoutingTable[i].ipHopper, (char *) strtok(NULL, " "));
+    strcpy(arrRoutingTable[i].name, (char *) strtok(NULL, "\n"));
+
+    printf("IP Address: %s IP Hop: %s Name: %s\n", arrRoutingTable[i].ipAddress, arrRoutingTable[i].ipHopper, arrRoutingTable[i].name);
     i++;
   }
-
+  free(line);
   fclose(fp);
-
 }
 
 

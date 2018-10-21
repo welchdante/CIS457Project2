@@ -10,9 +10,9 @@
 #include <arpa/inet.h>
 #include <string.h>
 #include <linux/ip.h>
+#include <stdlib.h>
 
 /* Checksum for ICMP. */
-//unsigned short checksum(unsigned short *addr, unsigned short count);
 uint16_t checksum(unsigned char *addr, int len);
 
 /*
@@ -36,16 +36,16 @@ struct arpheader {
  * http://www.networksorcery.com/enp/protocol/ip.htm
  */
 struct ipheader {
-   uint8_t ihl:4, version:4; // Version=format of IP packet header, IHL=length
-   uint8_t tos; // http://www.networksorcery.com/enp/rfc/rfc2474.txt
-   uint16_t len; // Datagram length.
-   uint16_t id; // Datagram identity.
-   uint16_t flag_offset; // Either: (R) reserved, (DF) don't fragment, or (MF) more fragments.
-   uint8_t ttl; // Time to live.
-   uint8_t protocol; // Protocol type.
-   uint16_t checksum; // One's compliment checksum of the IP header.
-   unsigned char src_ip[4]; // Sender IP address.
-   unsigned char dest_ip[4]; // Target IP address.
+  uint8_t ihl:4, version:4; // Version=format of IP packet header, IHL=length
+  uint8_t tos; // http://www.networksorcery.com/enp/rfc/rfc2474.txt
+  uint16_t len; // Datagram length.
+  uint16_t id; // Datagram identity.
+  uint16_t flag_offset; // Either: (R) reserved, (DF) don't fragment, or (MF) more fragments.
+  uint8_t ttl; // Time to live.
+  uint8_t protocol; // Protocol type.
+  uint16_t checksum; // One's compliment checksum of the IP header.
+  unsigned char src_ip[4]; // Sender IP address.
+  unsigned char dest_ip[4]; // Target IP address.
 };
 
 /*
@@ -53,9 +53,9 @@ struct ipheader {
  * http://www.networksorcery.com/enp/protocol/ethernet.htm
  */
 struct ethheader {
-   unsigned char eth_dest[6]; // Destination address.
-   unsigned char eth_src[6]; // Source address.
-   unsigned short eth_type; // Type: ARP=0x0806 IP=0x0800.
+  unsigned char eth_dest[6]; // Destination address.
+  unsigned char eth_src[6]; // Source address.
+  unsigned short eth_type; // Type: ARP=0x0806 IP=0x0800.
 };
 
  /*
@@ -63,26 +63,43 @@ struct ethheader {
   * http://www.networksorcery.com/enp/protocol/icmp.htm
   */
 struct icmpheader {
-    uint8_t type; // ICMP message format.
-    uint8_t code; // Qualifies ICMP message.
-    uint16_t checksum; // Checksum for the ICMP message.
-    uint16_t id; //random number
-    uint16_t seq; //seq #
-    uint32_t data; //data sent in icmp
+  uint8_t type; // ICMP message format.
+  uint8_t code; // Qualifies ICMP message.
+  uint16_t checksum; // Checksum for the ICMP message.
+  uint16_t id; //random number
+  uint16_t seq; //seq #
+  uint32_t data; //data sent in icmp
 };
+
+/*
+ * Hold the routing table information.
+ */
+struct routingTable {
+  char ipAddress[15];
+  char ipHopper[15];
+  char name[10];
+};
+
+/* Fills routing table with values. */
+void loadTable(struct routingTable arrRoutingTable[], int arrLength);
 
 //need array of ints, (a vector would be nice lol) for interfaces
 //need array of chars for addresses
-struct ip_addr{
-  char inf_name[8];
-  int ip;
-};
+// struct ip_addr{
+//   char inf_name[8];
+//   int ip;
+// };
 
 /* Main program... duh */
 int main(){
   int packet_socket;
   unsigned char local_addr[6];
-  int numip = 0;
+
+  // Load routing table in.
+  struct routingTable myRoutingTable[6];
+  loadTable(myRoutingTable, 6);
+
+  //int numip = 0;
 
   // file descriptor set and set all to zero
   fd_set sockets;
@@ -90,7 +107,7 @@ int main(){
 
   //need array of ints, (a vector would be nice lol) for interfaces
   //need array of chars for addresses
-  struct ip_addr ips[10];
+  //struct ip_addr ips[10];
 
   // Get list of interface addresses.
   struct ifaddrs *ifaddr, *tmp;
@@ -109,16 +126,16 @@ int main(){
     //of our own IP addresses
 
     // Get OUR IP
-    if (tmp->ifa_addr->sa_family==AF_INET) {
-      struct sockaddr_in *sockaddr;
-      struct ip_addr address;
-      sockaddr = (struct sockaddr_in*)tmp->ifa_addr;
-      printf("My IP is: %d\n", sockaddr->sin_addr.s_addr);
-      strcpy(address.inf_name, tmp->ifa_name);
-      address.ip = sockaddr->sin_addr.s_addr;
-      ips[numip] = address;
-      numip++;
-    }
+    // if (tmp->ifa_addr->sa_family==AF_INET) {
+    //   struct sockaddr_in *sockaddr;
+    //   struct ip_addr address;
+    //   sockaddr = (struct sockaddr_in*)tmp->ifa_addr;
+    //   printf("My IP is: %d\n", sockaddr->sin_addr.s_addr);
+    //   strcpy(address.inf_name, tmp->ifa_name);
+    //   address.ip = sockaddr->sin_addr.s_addr;
+    //   ips[numip] = address;
+    //   numip++;
+    // }
 
     if(tmp->ifa_addr->sa_family==AF_PACKET){
       printf("Interface: %s\n",tmp->ifa_name);
@@ -175,14 +192,7 @@ int main(){
   //see which ones have data)
   printf("Ready to recieve now\n");
   while(1) {
-    //do the logic below, but in a for loop with interfaces
-
-    //char buf[1500], bufsend[1500];
     struct sockaddr_ll recvaddr;
-    // struct ethheader *eh_incoming, *eh_outgoing;
-    // struct arpheader *ah_incoming, *ah_outgoing;
-    // struct ipheader *ih_incoming, *ih_outgoing;
-    // struct icmpheader *icmph_incoming, *icmph_outgoing;
     int recvaddrlen=sizeof(struct sockaddr_ll);
 
     fd_set tmp_set = sockets; // copy of set
@@ -191,7 +201,6 @@ int main(){
     select(FD_SETSIZE, &tmp_set, NULL, NULL, NULL);
 
     int i;
-
     for (i = 0; i < FD_SETSIZE; i++) {
       char buf[1500], bufsend[1500];
       struct ethheader *eh_incoming, *eh_outgoing;
@@ -296,32 +305,61 @@ int main(){
  * Taken from: https://github.com/kohler/ipsumdump/blob/master/libclick-2.1/libsrc/in_cksum.c
  */
 uint16_t checksum(unsigned char *addr, int len) {
-    int nleft = len;
-    const uint16_t *w = (const uint16_t *)addr;
-    uint32_t sum = 0;
-    uint16_t answer = 0;
+  int nleft = len;
+  const uint16_t *w = (const uint16_t *)addr;
+  uint32_t sum = 0;
+  uint16_t answer = 0;
 
-    /*
-     * Our algorithm is simple, using a 32 bit accumulator (sum), we add
-     * sequential 16 bit words to it, and at the end, fold back all the
-     * carry bits from the top 16 bits into the lower 16 bits.
-     */
-    while (nleft > 1)  {
+  /*
+  * Our algorithm is simple, using a 32 bit accumulator (sum), we add
+  * sequential 16 bit words to it, and at the end, fold back all the
+  * carry bits from the top 16 bits into the lower 16 bits.
+  */
+  while (nleft > 1)  {
   sum += *w++;
   nleft -= 2;
-    }
+  }
 
-    /* mop up an odd byte, if necessary */
-    if (nleft == 1) {
+  /* mop up an odd byte, if necessary */
+  if (nleft == 1) {
   *(unsigned char *)(&answer) = *(const unsigned char *)w ;
   sum += answer;
-    }
+  }
 
-    /* add back carry outs from top 16 bits to low 16 bits */
-    sum = (sum & 0xffff) + (sum >> 16);
-    sum += (sum >> 16);
-    /* guaranteed now that the lower 16 bits of sum are correct */
+  /* add back carry outs from top 16 bits to low 16 bits */
+  sum = (sum & 0xffff) + (sum >> 16);
+  sum += (sum >> 16);
+  /* guaranteed now that the lower 16 bits of sum are correct */
 
-    answer = ~sum;              /* truncate to 16 bits */
-    return answer;
+  answer = ~sum;              /* truncate to 16 bits */
+  return answer;
 }
+
+
+/*
+ * Fills routing table with values.
+ */
+void loadTable(struct routingTable arrRoutingTable[], int arrLength) {
+  FILE* fp;
+  fp = fopen("r1-table.txt", "r"); // open read only.
+  if (fp == NULL) {
+    perror("Error opening the file. Now shutting down...\n");
+    exit(1);
+  }
+
+  char* line = NULL;
+  size_t len = 0;
+  ssize_t read;
+  char string[50];
+
+  int i = 0;
+  while ((read = getline(&line, &len, fp)) != -1) {
+    printf("%s", line);
+    i++;
+  }
+
+  fclose(fp);
+
+}
+
+

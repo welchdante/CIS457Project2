@@ -77,23 +77,29 @@ struct routingTable {
   char name[10];
 };
 
+/* Hold IP Addresses */
+struct ip_addr{
+  char interface_name[8];
+  int ip;
+};
+
+/* Hold MAC Addresses */
+struct mac_addr {
+  char interface_name[8];
+  int sockid;
+  struct sockaddr_ll* socket;
+};
+
 /* Fills routing table with values. */
 void loadTable(struct routingTable *arrRoutingTable, int arrLength);
 
 /* Checksum for ICMP. */
 uint16_t checksum(unsigned char *addr, int len);
 
-//need array of ints, (a vector would be nice lol) for interfaces
-//need array of chars for addresses
-// struct ip_addr{
-//   char inf_name[8];
-//   int ip;
-// };
-
 /* Main program... duh */
 int main(){
   int packet_socket;
-  unsigned char local_addr[6];
+  unsigned char local_addr[6]; // >>> might delete later
 
   // Load routing table in.
   struct routingTable myRoutingTable[6];
@@ -113,7 +119,12 @@ int main(){
 
   //need array of ints, (a vector would be nice lol) for interfaces
   //need array of chars for addresses
-  //struct ip_addr ips[10];
+  struct ip_addr ips[10]; // all of my IPS
+  int num_ip = 0;
+  struct mac_addr macs[10]; // all of my MACS
+  int num_mac = 0;
+
+  int numRouter = 1; // router identifier ASSUMING 1 FOR NOW... not gonna check
 
   // Get list of interface addresses.
   struct ifaddrs *ifaddr, *tmp;
@@ -131,17 +142,17 @@ int main(){
     //use the AF_INET addresses in this list for example to get a list
     //of our own IP addresses
 
-    // Get OUR IP
-    // if (tmp->ifa_addr->sa_family==AF_INET) {
-    //   struct sockaddr_in *sockaddr;
-    //   struct ip_addr address;
-    //   sockaddr = (struct sockaddr_in*)tmp->ifa_addr;
-    //   printf("My IP is: %d\n", sockaddr->sin_addr.s_addr);
-    //   strcpy(address.inf_name, tmp->ifa_name);
-    //   address.ip = sockaddr->sin_addr.s_addr;
-    //   ips[numip] = address;
-    //   numip++;
-    // }
+    // Get this IP if it is IPv4 
+    if (tmp->ifa_addr->sa_family==AF_INET) {
+      struct sockaddr_in *sockaddr;
+      struct ip_addr address;
+      sockaddr = (struct sockaddr_in*)tmp->ifa_addr;
+      printf("IP added to list: %d\n", sockaddr->sin_addr.s_addr);
+      strcpy(address.interface_name, tmp->ifa_name);
+      address.ip = sockaddr->sin_addr.s_addr;
+      ips[num_ip] = address;
+      num_ip++;
+    }
 
     if(tmp->ifa_addr->sa_family==AF_PACKET){
       printf("Interface: %s\n",tmp->ifa_name);
@@ -149,18 +160,6 @@ int main(){
       // create a packet socket on interface r?-eth1
       if(!strncmp(&(tmp->ifa_name[3]),"eth",3)){
         printf("Creating Socket on interface %s\n",tmp->ifa_name);
-
-        // get our MAC address and store it. if we store IP we probz dont need it?
-        struct sockaddr_ll *pAddr = (struct sockaddr_ll *)tmp->ifa_addr;
-        memcpy(local_addr, pAddr->sll_addr, 6);
-        printf("MAC: ");
-        int macs;
-        for(macs = 0; macs < 5; macs++) {
-          //local_addr[i] = pAddr->sll_addr[i];
-          printf("%i:", local_addr[macs]);
-        }
-        printf("%i\n", local_addr[5]);
-
          //create a packet socket
          //AF_PACKET makes it a packet socket
          //SOCK_RAW makes it so we get the entire packet
@@ -182,10 +181,27 @@ int main(){
           perror("bind");
         }
 
-        //add packet_socket to interfaces
+        // add local_mac->sll_addr to addresses
+        // get our MAC address and store it.
+        struct mac_addr mac;
+        mac.sockid = packet_socket;
+        mac.socket = (struct sockaddr_ll *)tmp->ifa_addr;
+        strcpy(mac.interface_name, tmp->ifa_name);
+        macs[num_mac] = mac;
+        num_mac++;
+        // struct sockaddr_ll *pAddr = (struct sockaddr_ll *)tmp->ifa_addr;
+        // memcpy(local_addr, pAddr->sll_addr, 6);
+        // printf("MAC: ");
+        // int macs;
+        // for(macs = 0; macs < 5; macs++) {
+        //   //local_addr[i] = pAddr->sll_addr[i];
+        //   printf("%i:", local_addr[macs]);
+        // }
+        // printf("%i\n", local_addr[5]);
+
+        // add packet_socket to interfaces
         // put the socket in file descriptor.
         FD_SET(packet_socket, &sockets);
-        //add local_mac->sll_addr to addresses
       }
     }
   }
@@ -241,6 +257,16 @@ int main(){
 
         if (eh_incoming->eth_type == ETHERTYPE_ARP) {
           printf("I think its ARP!\n");
+
+          // Is this an ARP reply?
+          if (ah_incoming->opcode == 2) {
+            printf("Got an ARP REPLY\n");
+            // forward packet to corresponding MAC address
+          }
+          if (ah_incoming->opcode == 1) {
+
+          }
+
           // Copy data into an ARP struct.
           printf("Building the ARP header right now...\n");
           ah_outgoing = (struct arpheader*) (bufsend + sizeof(struct ethheader));

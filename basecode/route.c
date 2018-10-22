@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 
 #include <sys/socket.h>
 #include <netpacket/packet.h>
@@ -11,6 +12,8 @@
 #include <string.h>
 #include <linux/ip.h>
 #include <stdlib.h>
+#include <sys/select.h>
+#include <sys/types.h>
 
 /*
  * ARP header.
@@ -251,6 +254,13 @@ int main(){
         ah_incoming = (struct arpheader*) (buf + sizeof(struct ethheader));
         ih_incoming = (struct ipheader*) (buf + sizeof(struct ethheader));
 
+        char packet_ip[20];
+        // build IP string for comparing later
+        snprintf(packet_ip, sizeof(packet_ip), "%d.%d.%d.%d", ih_incoming->dest_ip[0], 
+                                                              ih_incoming->dest_ip[1], 
+                                                              ih_incoming->dest_ip[2], 
+                                                              ih_incoming->dest_ip[3]);                                   
+
         // Find out what type this is!
         eh_incoming->eth_type = ntohs(eh_incoming->eth_type);
         printf("Type: %x\n", eh_incoming->eth_type);
@@ -296,7 +306,25 @@ int main(){
 
           // Check if echo request.
           if (icmph_incoming->type == 8) {
-            printf("This is an ICMP ECHO request!\n");
+            printf("This is an ICMP ECHO request! Let's forward it!\n");
+            printf("Packet ip: %s \n", packet_ip);
+
+            for (int table=0; table<sizeof myRoutingTable / sizeof myRoutingTable[0]; table++) {
+              if (strcmp(packet_ip, myRoutingTable[table].ipAddress)) {
+                printf("This packet belongs to router %d, forwarding.\n", table);
+                memcpy(bufsend, buf, 1500);
+                icmph_outgoing = (struct icmpheader*) (bufsend + sizeof(struct ethheader) + sizeof(struct ipheader));
+                icmph_outgoing->type = 0;
+                icmph_outgoing->checksum = 0;
+                icmph_outgoing->checksum = checksum((char*) icmph_outgoing, (1500 - sizeof(struct ethheader) - sizeof(struct ipheader)));
+
+                //copy data into ip header
+                ih_outgoing = (struct ipheader*) (bufsend + sizeof(struct ethheader));
+                memcpy(ih_outgoing->src_ip, ih_incoming->dest_ip, 4);
+                memcpy(ih_outgoing->dest_ip, myRoutingTable[table].ipAddress, 4); 
+                send(i, bufsend, n, 0);
+              }
+            }
 
             // Copy the packet.
             memcpy(bufsend, buf, 1500);

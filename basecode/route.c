@@ -72,59 +72,43 @@ struct icmpheader {
  * Hold the routing table information.
  */
 struct routingTable {
-  char ipAddress[15];
-  char ipHopper[15];
-  char name[10];
+  char ipAddress[9];
+  char ipBits[3];
+  char ipHopper[9];
+  char name[8];
 };
 
-/* Hold IP Addresses */
-struct ip_addr{
-  char interface_name[8];
-  int ip;
-};
-
-/* Hold MAC Addresses */
-struct mac_addr {
-  char interface_name[8];
-  int sockid;
-  struct sockaddr_ll* socket;
+struct interface {
+  char* name;
+  int sockNum;
+  unsigned char mac[6];
+  unsigned char ip[4];
 };
 
 /* Fills routing table with values. */
 void loadTable(struct routingTable *arrRoutingTable, int arrLength);
-
 /* Checksum for ICMP. */
+
 uint16_t checksum(unsigned char *addr, int len);
 
 /* Main program... duh */
 int main(){
   int packet_socket;
-  unsigned char local_addr[6]; // >>> might delete later
-
-  // Load routing table in.
-  struct routingTable myRoutingTable[6];
-  loadTable(myRoutingTable, 6);
-
-  printf("Testing everything loaded correctly...\n");
-  int test;
-  for(test = 0; test < 3; test++) {
-    printf("IP Address: %s IP Hop: %s Name: %s\n", myRoutingTable[test].ipAddress, myRoutingTable[test].ipHopper, myRoutingTable[test].name);
-  }
-
-  //int numip = 0;
+  struct interface interfaces[6];
 
   // file descriptor set and set all to zero
   fd_set sockets;
   FD_ZERO(&sockets);
 
-  //need array of ints, (a vector would be nice lol) for interfaces
-  //need array of chars for addresses
-  struct ip_addr ips[10]; // all of my IPS
-  int num_ip = 0;
-  struct mac_addr macs[10]; // all of my MACS
-  int num_mac = 0;
+  // Load routing table in.
+  struct routingTable myRoutingTable[5];
+  loadTable(myRoutingTable, 5);
 
-  int numRouter = 1; // router identifier ASSUMING 1 FOR NOW... not gonna check
+  printf("Testing everything loaded correctly...\n");
+  int test;
+  for(test = 0; test < 3; test++) {
+    printf("IP Address: %s Bits: %s IP Hop: %s Name: %s\n", myRoutingTable[test].ipAddress, myRoutingTable[test].ipBits, myRoutingTable[test].ipHopper, myRoutingTable[test].name);
+  }
 
   // Get list of interface addresses.
   struct ifaddrs *ifaddr, *tmp;
@@ -133,6 +117,7 @@ int main(){
     return 1;
   }
   
+  int i, k = 0;
   // Have the list, loop over the list.
   for(tmp = ifaddr; tmp!=NULL; tmp=tmp->ifa_next){
 
@@ -141,25 +126,13 @@ int main(){
     //about those for the purpose of enumerating interfaces. We can
     //use the AF_INET addresses in this list for example to get a list
     //of our own IP addresses
-
-    // Get this IP if it is IPv4 
-    if (tmp->ifa_addr->sa_family==AF_INET) {
-      struct sockaddr_in *sockaddr;
-      struct ip_addr address;
-      sockaddr = (struct sockaddr_in*)tmp->ifa_addr;
-      printf("IP added to list: %d\n", sockaddr->sin_addr.s_addr);
-      strcpy(address.interface_name, tmp->ifa_name);
-      address.ip = sockaddr->sin_addr.s_addr;
-      ips[num_ip] = address;
-      num_ip++;
-    }
-
     if(tmp->ifa_addr->sa_family==AF_PACKET){
       printf("Interface: %s\n",tmp->ifa_name);
 
       // create a packet socket on interface r?-eth1
       if(!strncmp(&(tmp->ifa_name[3]),"eth",3)){
         printf("Creating Socket on interface %s\n",tmp->ifa_name);
+
          //create a packet socket
          //AF_PACKET makes it a packet socket
          //SOCK_RAW makes it so we get the entire packet
@@ -171,6 +144,7 @@ int main(){
           perror("socket");
           return 2;
         }
+
         //Bind the socket to the address, so we only get packets
         //recieved on this specific interface. For packet sockets, the
         //address structure is a struct sockaddr_ll (see the man page
@@ -181,27 +155,28 @@ int main(){
           perror("bind");
         }
 
-        // add local_mac->sll_addr to addresses
-        // get our MAC address and store it.
-        struct mac_addr mac;
-        mac.sockid = packet_socket;
-        mac.socket = (struct sockaddr_ll *)tmp->ifa_addr;
-        strcpy(mac.interface_name, tmp->ifa_name);
-        macs[num_mac] = mac;
-        num_mac++;
-        // struct sockaddr_ll *pAddr = (struct sockaddr_ll *)tmp->ifa_addr;
-        // memcpy(local_addr, pAddr->sll_addr, 6);
-        // printf("MAC: ");
-        // int macs;
-        // for(macs = 0; macs < 5; macs++) {
-        //   //local_addr[i] = pAddr->sll_addr[i];
-        //   printf("%i:", local_addr[macs]);
-        // }
-        // printf("%i\n", local_addr[5]);
-
+        
+        struct sockaddr_ll *pAddr = (struct sockaddr_ll *)tmp->ifa_addr;
+        memcpy(&interfaces[i], pAddr->sll_addr, 6);
+        interfaces[i].sockNum = packet_socket;
+        interfaces[i].name = tmp->ifa_name;
+        printf("Got interface socket: %d\n", interfaces[i].sockNum);
         // add packet_socket to interfaces
         // put the socket in file descriptor.
         FD_SET(packet_socket, &sockets);
+        i++;
+      }
+    }
+
+    // Get this IP if it is IPv4 
+    if (tmp->ifa_addr->sa_family == AF_INET) {
+      if (!strncmp(&(tmp->ifa_name[3]), "eth", 3)) {
+        struct sockaddr_in *sockaddr = (struct sockaddr_in*)tmp->ifa_addr;
+        unsigned char *ipaddr = (unsigned char *) &(sockaddr->sin_addr.s_addr);
+        u_int32_t in;
+        memcpy(&interfaces[k].ip, &(sockaddr->sin_addr.s_addr), 4);
+        printf("Interface %s with IP %d.%d.%d.%d\n", tmp->ifa_name, interfaces[k].ip[0], interfaces[k].ip[1], interfaces[k].ip[2], interfaces[k].ip[3]);
+        k++;
       }
     }
   }
@@ -243,6 +218,11 @@ int main(){
         //messages, so we will just ignore them here)
         if(recvaddr.sll_pkttype==PACKET_OUTGOING) continue;
 
+        // Get the socket number so I have the proper interface information.
+        for (k = 0; k < 6; k++) {
+          if (interfaces[k].sockNum == i) break;
+        }
+
         //start processing all others
         printf("Got a %d byte packet\n", n);
 
@@ -255,42 +235,79 @@ int main(){
         eh_incoming->eth_type = ntohs(eh_incoming->eth_type);
         printf("Type: %x\n", eh_incoming->eth_type);
 
+        // Is this an ARP?
         if (eh_incoming->eth_type == ETHERTYPE_ARP) {
           printf("I think its ARP!\n");
 
           // Is this an ARP reply?
-          if (ah_incoming->opcode == 2) {
-            printf("Got an ARP REPLY\n");
-            // forward packet to corresponding MAC address
-          }
-          if (ah_incoming->opcode == 1) {
+          if (ntohs(ah_incoming->opcode) == 2) {
+            printf("I think this is an ARP reply.\n");
+          } 
 
-          }
+          // Is this an ARP request?
+          else if (ntohs(ah_incoming->opcode) == 1) {
+            printf("I think this is an ARP request.\n");
+            printf("Destination IP: %d.%d.%d.%d\n", ah_incoming->target_ip[0], ah_incoming->target_ip[1], ah_incoming->target_ip[2], ah_incoming->target_ip[3]);
+            printf("My IP for eth%d: %d.%d.%d.%d\n", k, interfaces[k].ip[0], interfaces[k].ip[1], interfaces[k].ip[2], interfaces[k].ip[3]);
 
+            // am I the destination?
+            if (memcmp(ah_incoming->target_ip, interfaces[k].ip, 4) == 0) {
+              printf("I think this ARP request is for me! Gosh gee willy. (~u_u~)\n");
+              
+              // send a reply!
+              printf("Building the ARP header right now...\n");
+
+              // Copy data into an ARP struct.
+              ah_outgoing = (struct arpheader*) (bufsend + sizeof(struct ethheader));
+              ah_outgoing->hardware = htons(1);
+              ah_outgoing->protocol = htons(ETH_P_IP);
+              ah_outgoing->hardware_length = 6;
+              ah_outgoing->protocol_length = 4;
+              ah_outgoing->opcode = (unsigned short) htons(2); // reply code
+              memcpy(ah_outgoing->sender_addr, interfaces[k].mac, 6);
+              memcpy(ah_outgoing->sender_ip, interfaces[k].ip, 4);
+              memcpy(ah_outgoing->target_addr, ah_incoming->sender_addr, 6);
+              memcpy(ah_outgoing->target_ip, ah_incoming->sender_ip, 4);
+
+              printf("Building the ethernet header right now...\n");
+
+              // Copy data into an Ethernet Struct.
+              eh_outgoing = (struct ethheader*) bufsend;
+              memcpy(eh_outgoing->eth_dest, eh_incoming->eth_src, 6);
+              memcpy(eh_outgoing->eth_src, interfaces[k].mac, 6);
+              eh_outgoing->eth_type = htons(0x0806);
+
+              // Send the reply.
+              printf("Now sending the ARP reply...\n");
+              send(i, bufsend, 42, 0);
+            }
+          }
           // Copy data into an ARP struct.
-          printf("Building the ARP header right now...\n");
-          ah_outgoing = (struct arpheader*) (bufsend + sizeof(struct ethheader));
-          ah_outgoing->hardware = htons(1);
-          ah_outgoing->protocol = htons(ETH_P_IP);
-          ah_outgoing->hardware_length = 6;
-          ah_outgoing->protocol_length = 4;
-          ah_outgoing->opcode = htons(2);
-          memcpy(ah_outgoing->sender_addr, local_addr, 6);
-          memcpy(ah_outgoing->sender_ip, ah_incoming->target_ip, 4);
-          memcpy(ah_outgoing->target_addr, ah_incoming->sender_addr, 6);
-          memcpy(ah_outgoing->target_ip, ah_incoming->sender_ip, 4);
+          // printf("Building the ARP header right now...\n");
+          // ah_outgoing = (struct arpheader*) (bufsend + sizeof(struct ethheader));
+          // ah_outgoing->hardware = htons(1);
+          // ah_outgoing->protocol = htons(ETH_P_IP);
+          // ah_outgoing->hardware_length = 6;
+          // ah_outgoing->protocol_length = 4;
+          // ah_outgoing->opcode = htons(2);
+          // memcpy(ah_outgoing->sender_addr, local_addr, 6);
+          // memcpy(ah_outgoing->sender_ip, ah_incoming->target_ip, 4);
+          // memcpy(ah_outgoing->target_addr, ah_incoming->sender_addr, 6);
+          // memcpy(ah_outgoing->target_ip, ah_incoming->sender_ip, 4);
 
-          // Copy data into an Ethernet Struct.
-          printf("Building the ethernet header right now...\n");
-          eh_outgoing = (struct ethheader*) bufsend;
-          memcpy(eh_outgoing->eth_dest, eh_incoming->eth_src, 6);
-          memcpy(eh_outgoing->eth_src, eh_incoming->eth_dest, 6);
-          eh_outgoing->eth_type = htons(0x0806);
+          // // Copy data into an Ethernet Struct.
+          // printf("Building the ethernet header right now...\n");
+          // eh_outgoing = (struct ethheader*) bufsend;
+          // memcpy(eh_outgoing->eth_dest, eh_incoming->eth_src, 6);
+          // memcpy(eh_outgoing->eth_src, eh_incoming->eth_dest, 6);
+          // eh_outgoing->eth_type = htons(0x0806);
 
-          // Send the reply.
-          printf("Now sending the ARP reply...\n");
-          send(i, bufsend, 42, 0);
-        } else if (eh_incoming->eth_type == ETHERTYPE_IP) {
+          // // Send the reply.
+          // printf("Now sending the ARP reply...\n");
+          // send(i, bufsend, 42, 0);
+        } 
+        // Is this an ICMP?
+        else if (eh_incoming->eth_type == ETHERTYPE_IP) {
           printf("I think its IP/ICMP!\n");
           icmph_incoming = (struct icmpheader*) (buf + sizeof(struct ethheader) + sizeof(struct ipheader));
 
@@ -374,7 +391,11 @@ uint16_t checksum(unsigned char *addr, int len) {
 void loadTable(struct routingTable *arrRoutingTable, int arrLength) {
   //struct routingTable myRoutingTable[6];
   FILE* fp;
-  fp = fopen("r1-table.txt", "r"); // open read only.
+  char fileName[30];
+  printf("Enter the file name of a forwarding table: \n");
+  fgets(fileName, 30, stdin);
+  fileName[strlen(fileName) - 1] = '\0';
+  fp = fopen(fileName, "r"); // open read only.
   if (fp == NULL) {
     perror("Error opening the file. Now shutting down...\n");
     exit(1);
@@ -390,11 +411,12 @@ void loadTable(struct routingTable *arrRoutingTable, int arrLength) {
     //printf("%s", line);
     strcpy(string, line);
     string[read]  = '\0';
-    strcpy(arrRoutingTable[i].ipAddress, (char *) strtok(string, " "));
-    strcpy(arrRoutingTable[i].ipHopper, (char *) strtok(NULL, " "));
-    strcpy(arrRoutingTable[i].name, (char *) strtok(NULL, "\n"));
+    strcpy(arrRoutingTable[i].ipAddress, strtok(string, "/"));
+    strcpy(arrRoutingTable[i].ipBits, strtok(NULL, " "));
+    strcpy(arrRoutingTable[i].ipHopper, strtok(NULL, " "));
+    strcpy(arrRoutingTable[i].name, strtok(NULL, "\n"));
 
-    printf("IP Address: %s IP Hop: %s Name: %s\n", arrRoutingTable[i].ipAddress, arrRoutingTable[i].ipHopper, arrRoutingTable[i].name);
+    printf("IP Address: %s Bits: %s IP Hop: %s Name: %s\n", arrRoutingTable[i].ipAddress, arrRoutingTable[i].ipBits, arrRoutingTable[i].ipHopper, arrRoutingTable[i].name);
     i++;
   }
   free(line);

@@ -46,7 +46,7 @@ png -t 2 (sends packet with TTL 2) (tests TTL)
 
 look @ traceroute tool for other options
 
-
+wireshark will let you see the checksum of the packet in order to verify whether or not it is correct.
 
 What we send out...
 ----

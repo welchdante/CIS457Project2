@@ -17,3 +17,42 @@ Launch r1 with the command: xterm r1
 On r1, run the compiled router code.
 On h1 run the command: ping 10.0.0.1
 The router should then take incoming data, figure out what it is, then send the proper reply. h1 will state it has received data after r1 sends it.
+
+-----
+PART 3 NOTES
+-----
+
+we change the ttl in the IP header. subtract by 1
+as a side effect, we must recompute the checksum (easy)
+
+send error message when certain conditions occur
+error message is an ICMP packet
+-
+eth header - (src you - arp for dest)
+ip header - (src you - dest source of where the error happened)
+ICMP header (type, code, checksum... with 32 bits unused. fill them in with 0's)
+	three error conditions we have to detect (we change type code error on header... look@networksorcery)
+		1. ttl value (get packet with ttl one or less? do not forward packet) type=11 code=0
+			take this packet and copy its IP header and the next 8 bytes of its IP header.
+		2. destination unreachable type=3 code=0 (network unreachable... does not exist in our table... not in our network...)
+		3. destination unreachable type=3 code=1 (host unreachable.. we know its in our table.. we send an ARP for the MAC... but we dont get an ARP response. wait a few seconds.... then send an error.)
+
+
+how to test?
+----
+h1 ping 9.9.9.9 (not in forwarding table)
+h3 ping 10.1.1.20 (10.1.1 is in the table but not 20) 
+png -t 2 (sends packet with TTL 2) (tests TTL)
+
+look @ traceroute tool for other options
+
+
+
+What we send out...
+----
+ETH HEADER
+IP HEADER
+ICMP HEADER (type code depends on error) ---
+IP HEADER COPIED FROM ORIGINAL PACKET       |-- all in the ICMP checksum (holds true for all errors)
+NEXT 8 BYTES FROM ORIGINAL PACKET        ---
+----

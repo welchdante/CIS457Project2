@@ -42,7 +42,7 @@ how to test?
 ----
 h1 ping 9.9.9.9 (not in forwarding table)
 h3 ping 10.1.1.20 (10.1.1 is in the table but not 20) 
-png -t 2 (sends packet with TTL 2) (tests TTL)
+ping -t 2 (sends packet with TTL 2) (tests TTL)
 
 look @ traceroute tool for other options
 

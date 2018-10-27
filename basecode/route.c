@@ -70,7 +70,7 @@ struct icmpheader {
 struct icmperror {
   uint8_t type;
   uint8_t code;
-  uint8_t checksum;
+  uint16_t checksum;
   union {
     struct {
       uint16_t unused;
@@ -368,17 +368,20 @@ int main(){
           else {
             printf("I think this ICMP packet is for someone else...\n");
             // Reduce the time to live.
-            ih_incoming->ttl --;
-            ih_incoming->checksum = 0;
-            ih_incoming->checksum = checksum((char*) ih_incoming, sizeof(struct ipheader));
+            //ih_incoming->ttl --;
+            //ih_incoming->checksum = 0;
+            //ih_incoming->checksum = checksum((char*) ih_incoming, sizeof(struct ipheader));
             //ih_incoming->ttl = ih_incoming->ttl - 1;
-            if (ih_incoming->ttl == 1) {
+            if (ih_incoming->ttl <= 1) {
                printf("The TTL is zero. Now sending an error...");
                // send ICMP TTL exceeded error
                ///// do error stuff here
                icmpError(buf, k, interfaces, 11, 0);
             }
             else {
+              ih_incoming->ttl --;
+              ih_incoming->checksum = 0;
+              ih_incoming->checksum = checksum((char*) ih_incoming, sizeof(struct ipheader));
               // turn the IP address into a string.
               struct sockaddr_in thissock;
               memcpy(&thissock.sin_addr.s_addr, ih_incoming->dest_ip, 4);
@@ -594,24 +597,22 @@ void icmpError(char buf[1500], int interNum, struct interface *interfaces, int e
   // initialize all structures we need...
   char ipPlusEight[sizeof(struct ipheader) + 8];
   memcpy(ipPlusEight, &buf[sizeof(struct ethheader)], sizeof(struct ipheader) + 8);
+
   struct ethheader *eh_outgoing = (struct ethheader*) &buf[0];
   struct ipheader *ih_outgoing = (struct ipheader*) &buf[sizeof(struct ethheader)];
   struct icmperror *icmph_outgoing = (struct icmperror *) &buf[sizeof(struct ethheader) + sizeof(struct ipheader)];
-  uint8_t *data = &buf[sizeof(struct ethheader) + sizeof(struct ipheader) + sizeof(struct icmperror)];
+  char *data = &buf[sizeof(struct ethheader) + sizeof(struct ipheader) + sizeof(struct icmperror)];
   
   printf("Building ethernet header.\n");
-  memcpy(eh_outgoing->eth_dest, eh_outgoing->eth_src, 6);
+  memcpy(eh_outgoing->eth_dest, eh_outgoing->eth_src, 6); // change to ARP call for destination later
   memcpy(eh_outgoing->eth_src, interfaces[interNum].mac, 6);
   eh_outgoing->eth_type = htons(0x0800); //IP
 
   printf("Building IP header.\n");
-  ih_outgoing->ttl = 64; // ?
-  //ih_outgoing->protocol = 1; // ?
-  //ih_outgoing->id = ih_outgoing->id + 1; // ?
-  //ih_outgoing->len = htons(((2 * sizeof(struct ipheader)) + sizeof(struct icmperror) + 8));
+  ih_outgoing->ttl = 64; // make large ttl
   memcpy(ih_outgoing->dest_ip, ih_outgoing->src_ip, 4);
   memcpy(ih_outgoing->src_ip, interfaces[interNum].ip, 4);
-  // check sum?
+  // check sum
   ih_outgoing->checksum = 0;
   ih_outgoing->checksum = checksum((char*) ih_outgoing, sizeof(struct ipheader));
 
@@ -619,7 +620,7 @@ void icmpError(char buf[1500], int interNum, struct interface *interfaces, int e
   if (errorType == 11 && errorCode == 0) { // ttl error?
     printf("I think it is time exceeded!\n");
     icmph_outgoing->type = errorType;
-    icmph_outgoing->code = errorCode;
+    icmph_outgoing->code = 0x0;
     icmph_outgoing->un.ttl.unused = 0;
   }
   else if (errorType == 3 && errorCode == 0) { // network unreachable?
@@ -632,7 +633,7 @@ void icmpError(char buf[1500], int interNum, struct interface *interfaces, int e
   memcpy(data, ipPlusEight, sizeof(struct ipheader) + 8);
 
   icmph_outgoing->checksum = 0;
-  icmph_outgoing->checksum = checksum((char*) icmph_outgoing, sizeof(struct ipheader) + sizeof(struct icmperror) + 8);
+  icmph_outgoing->checksum = checksum((char*) icmph_outgoing, sizeof(struct icmperror) + sizeof(struct ipheader) + 8);
 
   send(interfaces[interNum].sockNum, buf, sizeof(struct ethheader) + (2 * sizeof(struct ipheader)) + sizeof(struct icmperror) + 8, 0);
 

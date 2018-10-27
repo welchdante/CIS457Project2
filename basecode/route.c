@@ -32,11 +32,11 @@ struct arpheader {
  * http://www.networksorcery.com/enp/protocol/ip.htm
  */
 struct ipheader {
-  uint8_t ihl:4, version:4; // Version=format of IP packet header, IHL=length
-  uint8_t tos; // http://www.networksorcery.com/enp/rfc/rfc2474.txt
-  uint16_t len; // Datagram length.
-  uint16_t id; // Datagram identity.
-  uint16_t flag_offset; // Either: (R) reserved, (DF) don't fragment, or (MF) more fragments.
+  uint8_t v_ihl[8]; // Version=format of IP packet header, IHL=length
+  //uint8_t tos; // http://www.networksorcery.com/enp/rfc/rfc2474.txt
+  //uint16_t len; // Datagram length.
+  //uint16_t id; // Datagram identity.
+  //uint16_t flag_offset; // Either: (R) reserved, (DF) don't fragment, or (MF) more fragments.
   uint8_t ttl; // Time to live.
   uint8_t protocol; // Protocol type.
   uint16_t checksum; // One's compliment checksum of the IP header.
@@ -67,6 +67,21 @@ struct icmpheader {
   uint32_t data; //data sent in icmp
 };
 
+struct icmperror {
+  uint8_t type;
+  uint8_t code;
+  uint8_t checksum;
+  union {
+    struct {
+      uint16_t unused;
+      uint16_t nextHop;
+    } dest;
+    struct {
+      uint32_t unused;
+    } ttl;
+  } un;
+};
+
 /*
  * Hold the routing table information.
  */
@@ -89,6 +104,8 @@ int loadTable(struct routingTable *arrRoutingTable);
 
 /* Checksum for ICMP. */
 uint16_t checksum(unsigned char *addr, int len);
+
+void icmpError(char buf[1500], int interNum, struct interface *interfaces, int errorType, int errorCode);
 
 /* Main program... duh */
 int main(){
@@ -350,131 +367,143 @@ int main(){
           // This isn't for me.. lets forward?
           else {
             printf("I think this ICMP packet is for someone else...\n");
-
-            // turn the IP address into a string.
-            struct sockaddr_in thissock;
-            memcpy(&thissock.sin_addr.s_addr, ih_incoming->dest_ip, 4);
-            char* addr = inet_ntoa(thissock.sin_addr);
-
-            // Look up in forwarding table...
-            for (j = 0; j < num_tablerows; j++) {
-              // bits to bytes of stringified IP
-              int len = (atoi(myRoutingTable[j].ipBits) / 8) * 2;
-              if ((memcmp(addr, myRoutingTable[j].ipAddress, len)) == 0) {
-                printf("I think I found a match...\n");
-                printf("The routing table found a match: %s\n", myRoutingTable[j].ipAddress);
-                matched = 0;
-                break;
-              }
+            // Reduce the time to live.
+            ih_incoming->ttl --;
+            ih_incoming->checksum = 0;
+            ih_incoming->checksum = checksum((char*) ih_incoming, sizeof(struct ipheader));
+            //ih_incoming->ttl = ih_incoming->ttl - 1;
+            if (ih_incoming->ttl == 1) {
+               printf("The TTL is zero. Now sending an error...");
+               // send ICMP TTL exceeded error
+               ///// do error stuff here
+               icmpError(buf, k, interfaces, 11, 0);
             }
+            else {
+              // turn the IP address into a string.
+              struct sockaddr_in thissock;
+              memcpy(&thissock.sin_addr.s_addr, ih_incoming->dest_ip, 4);
+              char* addr = inet_ntoa(thissock.sin_addr);
 
-            // if we matched in the table... lets forward it!
-            if (matched == 0) {
-              printf("I am going to attempt forwarding this packet...\n");
-              char buffer[98];
-              memcpy(&buffer, &buf[0], 98);
-
-              // get next interface for the hop
-              int x;
-              int socket = 0;
-              for (x = 0; x < num_tablerows; x++) {
-                if (memcmp(interfaces[x].name, myRoutingTable[j].name, 7) == 0) {
-                  socket = interfaces[x].sockNum;
+              // Look up in forwarding table...
+              for (j = 0; j < num_tablerows; j++) {
+                // bits to bytes of stringified IP
+                int len = (atoi(myRoutingTable[j].ipBits) / 8) * 2;
+                if ((memcmp(addr, myRoutingTable[j].ipAddress, len)) == 0) {
+                  printf("I think I found a match...\n");
+                  printf("The routing table found a match: %s\n", myRoutingTable[j].ipAddress);
+                  matched = 0;
                   break;
                 }
               }
 
-              // is this outside my network?
-              if (memcmp(myRoutingTable[j].ipHopper, "-", 1) != 0) {
-                printf("Outside my network...\n");
-                addr = myRoutingTable[j].ipHopper;
+              // if we matched in the table... lets forward it!
+              if (matched == 0) {
+                printf("I am going to attempt forwarding this packet...\n");
+                char buffer[98];
+                memcpy(&buffer, &buf[0], 98);
+
+                // get next interface for the hop
+                int x;
+                int socket = 0;
+                for (x = 0; x < num_tablerows; x++) {
+                  if (memcmp(interfaces[x].name, myRoutingTable[j].name, 7) == 0) {
+                    socket = interfaces[x].sockNum;
+                    break;
+                  }
+                }
+
+                // is this outside my network?
+                if (memcmp(myRoutingTable[j].ipHopper, "-", 1) != 0) {
+                  printf("Outside my network...\n");
+                  addr = myRoutingTable[j].ipHopper;
+                }
+
+                printf("Hopping to: %s\n", addr);
+
+                unsigned char broadcast[6];
+                int q;
+                for (q = 0; q < 6; q++) { broadcast[q] = 0XFF; } // broadcast this stuff to everyone...
+
+                // Send an ARP request...
+                  
+                printf("Building the ARP header right now...\n");
+                // Copy data into an ARP struct.
+                ah_outgoing = (struct arpheader*) (bufsend + sizeof(struct ethheader));
+                ah_outgoing->hardware = htons(1);
+                ah_outgoing->protocol = htons(2048);
+                ah_outgoing->hardware_length = 6;
+                ah_outgoing->protocol_length = 4;
+                ah_outgoing->opcode = (unsigned short) htons(1); // request code
+                memcpy(ah_outgoing->sender_addr, interfaces[k].mac, 6);
+                memcpy(ah_outgoing->sender_ip, interfaces[k].ip, 4);
+                memcpy(ah_outgoing->target_addr, &broadcast, 6);
+
+                printf("Building the ethernet header right now...\n");
+                /* Construct eth header */
+                eh_outgoing = (struct ethheader*) bufsend;
+                memcpy(eh_outgoing->eth_dest, &broadcast, 6);
+                memcpy(eh_outgoing->eth_src, interfaces[socket].mac, 6);
+                eh_outgoing->eth_type = htons(0x0806); // ARP
+
+                struct sockaddr_in *temp = (struct sockaddr_in*)malloc(sizeof(struct sockaddr_in));
+
+                unsigned char dstip[4];
+                inet_aton(addr, &temp->sin_addr); // next hop address into temp
+                memcpy(&dstip, &temp->sin_addr, 4);
+
+                printf("ARP Request DST IP address: %d.%d.%d.%d\n",
+                       dstip[0],
+                       dstip[1],
+                       dstip[2],
+                       dstip[3]
+                );
+
+                memcpy(ah_outgoing->target_ip, &dstip, 4);
+
+                // Send the reply.
+                printf("Now sending the ARP reply...\n");
+                send(socket, bufsend, 42, 0);
+
+                // Wait for a response...
+                int reply = 1;
+                struct sockaddr_ll recvaddr;
+                int recvaddrlen = sizeof(struct sockaddr_ll);
+                printf("Now waiting for a response...\n");
+
+                char tempBuf[1500]; 
+                char arpBuf[42];
+                while(reply) {
+                  int n = recvfrom(socket, tempBuf, 1500, 0, (struct sockaddr*) &recvaddr, &recvaddrlen);
+                  if (recvaddr.sll_pkttype == PACKET_OUTGOING) continue;
+                  reply = 0;
+                  printf("Got a response!\n");
+                }
+
+                memcpy(arpBuf, tempBuf, 42);
+
+                struct ethheader* eh_forward = (struct ethheader*) arpBuf;
+                memcpy(eh_forward->eth_dest, eh_forward->eth_src, 6);
+                memcpy(eh_forward->eth_src, interfaces[x].mac, 6);
+                eh_forward->eth_type = htons(0x0800);
+
+                // print eth destination received from ARP reply
+                printf("-DST MAC from ARP reply: %02X:%02X:%02X:%02X:%02X:%02X\n",
+                       eh_forward->eth_dest[0],
+                       eh_forward->eth_dest[1],
+                       eh_forward->eth_dest[2],
+                       eh_forward->eth_dest[3],
+                       eh_forward->eth_dest[4],
+                       eh_forward->eth_dest[5]
+                );
+
+                memcpy(&buffer[0], eh_forward, 14);
+
+                // Sending an ICMP response packet.
+                printf("Sending ICMP response...\n");
+                send(socket, buffer, sizeof(buffer), 0);
+
+                free(temp);
               }
-
-              printf("Hopping to: %s\n", addr);
-
-              unsigned char broadcast[6];
-              int q;
-              for (q = 0; q < 6; q++) { broadcast[q] = 0XFF; } // broadcast this stuff to everyone...
-
-              // Send an ARP request...
-                
-              printf("Building the ARP header right now...\n");
-              // Copy data into an ARP struct.
-              ah_outgoing = (struct arpheader*) (bufsend + sizeof(struct ethheader));
-              ah_outgoing->hardware = htons(1);
-              ah_outgoing->protocol = htons(2048);
-              ah_outgoing->hardware_length = 6;
-              ah_outgoing->protocol_length = 4;
-              ah_outgoing->opcode = (unsigned short) htons(1); // request code
-              memcpy(ah_outgoing->sender_addr, interfaces[k].mac, 6);
-              memcpy(ah_outgoing->sender_ip, interfaces[k].ip, 4);
-              memcpy(ah_outgoing->target_addr, &broadcast, 6);
-
-              printf("Building the ethernet header right now...\n");
-              /* Construct eth header */
-              eh_outgoing = (struct ethheader*) bufsend;
-              memcpy(eh_outgoing->eth_dest, &broadcast, 6);
-              memcpy(eh_outgoing->eth_src, interfaces[socket].mac, 6);
-              eh_outgoing->eth_type = htons(0x0806); // ARP
-
-              struct sockaddr_in *temp = (struct sockaddr_in*)malloc(sizeof(struct sockaddr_in));
-
-              unsigned char dstip[4];
-              inet_aton(addr, &temp->sin_addr); // next hop address into temp
-              memcpy(&dstip, &temp->sin_addr, 4);
-
-              printf("ARP Request DST IP address: %d.%d.%d.%d\n",
-                     dstip[0],
-                     dstip[1],
-                     dstip[2],
-                     dstip[3]
-              );
-
-              memcpy(ah_outgoing->target_ip, &dstip, 4);
-
-              // Send the reply.
-              printf("Now sending the ARP reply...\n");
-              send(socket, bufsend, 42, 0);
-
-              // Wait for a response...
-              int reply = 1;
-              struct sockaddr_ll recvaddr;
-              int recvaddrlen = sizeof(struct sockaddr_ll);
-              printf("Now waiting for a response...\n");
-
-              char tempBuf[1500]; 
-              char arpBuf[42];
-              while(reply) {
-                int n = recvfrom(socket, tempBuf, 1500, 0, (struct sockaddr*) &recvaddr, &recvaddrlen);
-                if (recvaddr.sll_pkttype == PACKET_OUTGOING) continue;
-                reply = 0;
-                printf("Got a response!\n");
-              }
-
-              memcpy(arpBuf, tempBuf, 42);
-
-              struct ethheader* eh_forward = (struct ethheader*) arpBuf;
-              memcpy(eh_forward->eth_dest, eh_forward->eth_src, 6);
-              memcpy(eh_forward->eth_src, interfaces[x].mac, 6);
-              eh_forward->eth_type = htons(0x0800);
-
-              // print eth destination received from ARP reply
-              printf("-DST MAC from ARP reply: %02X:%02X:%02X:%02X:%02X:%02X\n",
-                     eh_forward->eth_dest[0],
-                     eh_forward->eth_dest[1],
-                     eh_forward->eth_dest[2],
-                     eh_forward->eth_dest[3],
-                     eh_forward->eth_dest[4],
-                     eh_forward->eth_dest[5]
-              );
-
-              memcpy(&buffer[0], eh_forward, 14);
-
-              // Sending an ICMP response packet.
-              printf("Sending ICMP response...\n");
-              send(socket, buffer, sizeof(buffer), 0);
-
-              free(temp);
             }
           }
         }
@@ -559,4 +588,52 @@ int loadTable(struct routingTable *arrRoutingTable) {
   fclose(fp);
 
   return i;
+}
+
+void icmpError(char buf[1500], int interNum, struct interface *interfaces, int errorType, int errorCode) {
+  // initialize all structures we need...
+  char ipPlusEight[sizeof(struct ipheader) + 8];
+  memcpy(ipPlusEight, &buf[sizeof(struct ethheader)], sizeof(struct ipheader) + 8);
+  struct ethheader *eh_outgoing = (struct ethheader*) &buf[0];
+  struct ipheader *ih_outgoing = (struct ipheader*) &buf[sizeof(struct ethheader)];
+  struct icmperror *icmph_outgoing = (struct icmperror *) &buf[sizeof(struct ethheader) + sizeof(struct ipheader)];
+  uint8_t *data = &buf[sizeof(struct ethheader) + sizeof(struct ipheader) + sizeof(struct icmperror)];
+  
+  printf("Building ethernet header.\n");
+  memcpy(eh_outgoing->eth_dest, eh_outgoing->eth_src, 6);
+  memcpy(eh_outgoing->eth_src, interfaces[interNum].mac, 6);
+  eh_outgoing->eth_type = htons(0x0800); //IP
+
+  printf("Building IP header.\n");
+  ih_outgoing->ttl = 64; // ?
+  //ih_outgoing->protocol = 1; // ?
+  //ih_outgoing->id = ih_outgoing->id + 1; // ?
+  //ih_outgoing->len = htons(((2 * sizeof(struct ipheader)) + sizeof(struct icmperror) + 8));
+  memcpy(ih_outgoing->dest_ip, ih_outgoing->src_ip, 4);
+  memcpy(ih_outgoing->src_ip, interfaces[interNum].ip, 4);
+  // check sum?
+  ih_outgoing->checksum = 0;
+  ih_outgoing->checksum = checksum((char*) ih_outgoing, sizeof(struct ipheader));
+
+  printf("Checking error types...\n");
+  if (errorType == 11 && errorCode == 0) { // ttl error?
+    printf("I think it is time exceeded!\n");
+    icmph_outgoing->type = errorType;
+    icmph_outgoing->code = errorCode;
+    icmph_outgoing->un.ttl.unused = 0;
+  }
+  else if (errorType == 3 && errorCode == 0) { // network unreachable?
+    // put in the guts here
+  }
+  else if (errorType == 3 && errorCode == 1) { // host unreachable?
+    // put in the guts here
+  }
+
+  memcpy(data, ipPlusEight, sizeof(struct ipheader) + 8);
+
+  icmph_outgoing->checksum = 0;
+  icmph_outgoing->checksum = checksum((char*) icmph_outgoing, sizeof(struct ipheader) + sizeof(struct icmperror) + 8);
+
+  send(interfaces[interNum].sockNum, buf, sizeof(struct ethheader) + (2 * sizeof(struct ipheader)) + sizeof(struct icmperror) + 8, 0);
+
 }

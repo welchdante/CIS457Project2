@@ -34,7 +34,7 @@ struct arpheader {
 struct ipheader {
   uint8_t v_ihl[8]; // Version=format of IP packet header, IHL=length
   //uint8_t tos; // http://www.networksorcery.com/enp/rfc/rfc2474.txt
-  //uint16_t len; // Datagram length.
+  //uint16_t tot_len; // Datagram length.
   //uint16_t id; // Datagram identity.
   //uint16_t flag_offset; // Either: (R) reserved, (DF) don't fragment, or (MF) more fragments.
   uint8_t ttl; // Time to live.
@@ -65,21 +65,6 @@ struct icmpheader {
   uint16_t id; //random number
   uint16_t seq; //seq #
   uint32_t data; //data sent in icmp
-};
-
-struct icmperror {
-  uint8_t type;
-  uint8_t code;
-  uint16_t checksum;
-  union {
-    struct {
-      uint16_t unused;
-      uint16_t nextHop;
-    } dest;
-    struct {
-      uint32_t unused;
-    } ttl;
-  } un;
 };
 
 /*
@@ -600,8 +585,8 @@ void icmpError(char buf[1500], int interNum, struct interface *interfaces, int e
 
   struct ethheader *eh_outgoing = (struct ethheader*) &buf[0];
   struct ipheader *ih_outgoing = (struct ipheader*) &buf[sizeof(struct ethheader)];
-  struct icmperror *icmph_outgoing = (struct icmperror *) &buf[sizeof(struct ethheader) + sizeof(struct ipheader)];
-  char *data = &buf[sizeof(struct ethheader) + sizeof(struct ipheader) + sizeof(struct icmperror)];
+  struct icmpheader *icmph_outgoing = (struct icmpheader *) &buf[sizeof(struct ethheader) + sizeof(struct ipheader)];
+  char *data = &buf[sizeof(struct ethheader) + sizeof(struct ipheader) + sizeof(struct icmpheader)];
   
   printf("Building ethernet header.\n");
   memcpy(eh_outgoing->eth_dest, eh_outgoing->eth_src, 6); // change to ARP call for destination later
@@ -612,6 +597,7 @@ void icmpError(char buf[1500], int interNum, struct interface *interfaces, int e
   ih_outgoing->ttl = 64; // make large ttl
   memcpy(ih_outgoing->dest_ip, ih_outgoing->src_ip, 4);
   memcpy(ih_outgoing->src_ip, interfaces[interNum].ip, 4);
+  ih_outgoing->protocol = 1;
   // check sum
   ih_outgoing->checksum = 0;
   ih_outgoing->checksum = checksum((char*) ih_outgoing, sizeof(struct ipheader));
@@ -620,21 +606,22 @@ void icmpError(char buf[1500], int interNum, struct interface *interfaces, int e
   if (errorType == 11 && errorCode == 0) { // ttl error?
     printf("I think it is time exceeded!\n");
     icmph_outgoing->type = errorType;
-    icmph_outgoing->code = 0x0;
-    icmph_outgoing->un.ttl.unused = 0;
+    icmph_outgoing->code = errorCode;
   }
   else if (errorType == 3 && errorCode == 0) { // network unreachable?
-    // put in the guts here
+    icmph_outgoing->type = errorType;
+    icmph_outgoing->code = errorCode;
   }
   else if (errorType == 3 && errorCode == 1) { // host unreachable?
-    // put in the guts here
+    icmph_outgoing->type = errorType;
+    icmph_outgoing->code = errorCode;
   }
 
   memcpy(data, ipPlusEight, sizeof(struct ipheader) + 8);
 
   icmph_outgoing->checksum = 0;
-  icmph_outgoing->checksum = checksum((char*) icmph_outgoing, sizeof(struct icmperror) + sizeof(struct ipheader) + 8);
+  icmph_outgoing->checksum = checksum((char*) icmph_outgoing, sizeof(struct icmpheader) + sizeof(struct ipheader) + 8);
 
-  send(interfaces[interNum].sockNum, buf, sizeof(struct ethheader) + (2 * sizeof(struct ipheader)) + sizeof(struct icmperror) + 8, 0);
+  send(interfaces[interNum].sockNum, buf, sizeof(struct ethheader) + (2 * sizeof(struct ipheader)) + sizeof(struct icmpheader) + 8, 0);
 
 }

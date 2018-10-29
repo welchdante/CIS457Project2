@@ -62,9 +62,10 @@ struct icmpheader {
   uint8_t type; // ICMP message format.
   uint8_t code; // Qualifies ICMP message.
   uint16_t checksum; // Checksum for the ICMP message.
+  // uint32_t unused;
   uint16_t id; //random number
   uint16_t seq; //seq #
-  uint32_t data; //data sent in icmp
+  // uint32_t data; //data sent in icmp
 };
 
 /*
@@ -332,6 +333,7 @@ int main(){
             icmph_outgoing->type = 0;
             icmph_outgoing->checksum = 0;
             icmph_outgoing->checksum = checksum((char*) icmph_outgoing, (1500 - sizeof(struct ethheader) - sizeof(struct ipheader)));
+            // icmph_outgoing->unused = 0;
 
             // Copy data into IP header.
             ih_outgoing = (struct ipheader*) (bufsend + sizeof(struct ethheader));
@@ -584,7 +586,8 @@ void icmpError(char buf[1500], int interNum, struct interface *interfaces, int e
   memcpy(ipPlusEight, &buf[sizeof(struct ethheader)], sizeof(struct ipheader) + 8);
 
   struct ethheader *eh_outgoing = (struct ethheader*) &buf[0];
-  struct ipheader *ih_outgoing = (struct ipheader*) &buf[sizeof(struct ethheader)];
+  struct ipheader *ih_outgoing = (struct ipheader*) &buf[sizeof(struct ethheader) + 32];
+  
   struct icmpheader *icmph_outgoing = (struct icmpheader *) &buf[sizeof(struct ethheader) + sizeof(struct ipheader)];
   char *data = &buf[sizeof(struct ethheader) + sizeof(struct ipheader) + sizeof(struct icmpheader)];
   
@@ -618,10 +621,10 @@ void icmpError(char buf[1500], int interNum, struct interface *interfaces, int e
   }
 
   memcpy(data, ipPlusEight, sizeof(struct ipheader) + 8);
-
+t
   icmph_outgoing->checksum = 0;
   icmph_outgoing->checksum = checksum((char*) icmph_outgoing, sizeof(struct icmpheader) + sizeof(struct ipheader) + 8);
-
+  icmph_outgoing->id = 0;
+  icmph_outgoing->seq = 0;
   send(interfaces[interNum].sockNum, buf, sizeof(struct ethheader) + (2 * sizeof(struct ipheader)) + sizeof(struct icmpheader) + 8, 0);
-
 }
